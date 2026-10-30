@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CANGuard – CAN bus intrusion detection</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500&display=swap">
+<style>
+:root{--bg:#eef1f4;--card:#fff;--tx:#14202b;--mut:#5a6876;--bd:#d9dfe5;--ok:#13897b;--warn:#c78100;--bad:#d6333b;--on:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c1319;--card:#152029;--tx:#e6edf2;--mut:#93a1ae;--bd:#243340;--ok:#34c3b1;--warn:#f2b43a;--bad:#ff6b72}}
+:root[data-theme="dark"]{--bg:#0c1319;--card:#152029;--tx:#e6edf2;--mut:#93a1ae;--bd:#243340;--ok:#34c3b1;--warn:#f2b43a;--bad:#ff6b72}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:400 15px/1.5 Barlow,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:780px;margin:0 auto;padding:16px 16px 40px}
+h1,h2,.state,.stat b,.gauge b{font-family:"Barlow Semi Condensed",Barlow,system-ui,sans-serif}
+h1{font-size:28px;margin:4px 0 0;letter-spacing:.2px}
+h2{font-size:18px;margin:0 0 10px;font-weight:600}
+.sub{color:var(--mut);margin:0 0 14px}
+section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:12px}
+.car{--c:var(--ok);display:flex;gap:14px;align-items:center;flex-wrap:wrap;border-left:8px solid var(--c);background:color-mix(in srgb,var(--c) 9%,var(--card));transition:background .3s,border-color .3s}
+.car.warn{--c:var(--warn)}.car.fail{--c:var(--bad)}
+.ring{width:76px;height:76px;border-radius:50%;border:5px solid var(--c);display:grid;place-items:center;font-size:34px;transition:border-color .3s}
+.car.fail .ring{animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 10px color-mix(in srgb,var(--bad) 25%,transparent)}}
+@media (prefers-reduced-motion:reduce){.car.fail .ring{animation:none}}
+.state{font-size:30px;font-weight:700;color:var(--c);line-height:1.1}
+.info{flex:1;min-width:180px}
+.info p{margin:4px 0 0;color:var(--mut)}
+.gauges{display:flex;gap:18px}
+.gauge b{font-size:26px;display:block;line-height:1}
+.gauge span{color:var(--mut);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;background:none;border:0;padding:0}
+@media (min-width:600px){.grid{grid-template-columns:repeat(3,1fr)}}
+.stat{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}
+.stat b{font-size:24px;display:block;line-height:1.15}
+.stat span{color:var(--mut);font-size:13px}
+canvas{width:100%;height:120px;display:block}
+.leg{display:flex;gap:14px;color:var(--mut);font-size:13px;margin-top:6px}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font:600 15px "Barlow Semi Condensed",Barlow,system-ui,sans-serif;color:var(--tx);background:var(--card);border:1.5px solid var(--bd);border-radius:8px;padding:10px 14px;cursor:pointer;min-height:44px}
+button:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+button.atk{border-color:var(--bad)}
+button.atk.on{background:var(--bad);color:var(--on)}
+.hint{color:var(--mut);font-size:13px;margin:10px 0 0}
+.inc{border-left:4px solid var(--bad);padding:6px 0 6px 10px;margin-bottom:10px}
+.inc h3{margin:0;font-size:16px}
+.inc small{color:var(--mut)}
+.inc p{margin:4px 0 0}
+.empty{color:var(--mut);margin:0}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:4px 10px 4px 0;white-space:nowrap}
+th{color:var(--mut);font-weight:500}
+tr.bad td{color:var(--bad);font-weight:500}
+.note{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>CANGuard</h1>
+<p class="sub">Live intrusion detection for a connected car’s internal network.<br>Data source: <b id="mode">simulated bus</b></p>
+
+<section class="car" id="car" aria-live="polite">
+  <div class="ring" aria-hidden="true">🚗</div>
+  <div class="info"><div class="state" id="state">Normal</div><p id="stateSub">All ECUs are behaving as expected.</p></div>
+  <div class="gauges"><div class="gauge"><b id="spd">62</b><span>km/h</span></div><div class="gauge"><b id="rpm">2400</b><span>rpm</span></div></div>
+</section>
+
+<section class="grid">
+  <div class="stat"><b id="sN">0</b><span>Frames scanned</span></div>
+  <div class="stat"><b id="sF">0</b><span>Frames flagged</span></div>
+  <div class="stat"><b id="sT">–</b><span>Time to detect</span></div>
+  <div class="stat"><b id="sP">–</b><span>Precision</span></div>
+  <div class="stat"><b id="sR">–</b><span>Recall</span></div>
+  <div class="stat"><b id="sL">–</b><span>Detector time per frame</span></div>
+</section>
+
+<section>
+  <h2>Bus traffic</h2>
+  <canvas id="ch" role="img" aria-label="Frames per 100 milliseconds, normal and flagged"></canvas>
+  <div class="leg"><span><i style="background:var(--ok)"></i>Normal</span><span><i style="background:var(--bad)"></i>Flagged</span><span>Frames per 100 ms</span></div>
+</section>
+
+<section>
+  <h2>Attack simulator</h2>
+  <div class="btns">
+    <button class="atk" data-a="DoS">Inject DoS flood</button>
+    <button class="atk" data-a="Fuzzy">Inject fuzzing</button>
+    <button class="atk" data-a="Spoof">Inject RPM spoof</button>
+    <button id="pause">Pause</button>
+    <button id="reset">Reset</button>
+  </div>
+  <p class="hint">Each attack runs for 4 seconds. Run two at once to trigger fail-safe faster.</p>
+</section>
+
+<section>
+  <h2>Incidents</h2>
+  <div id="inc"><p class="empty">No incidents yet. Inject an attack to see the detector respond.</p></div>
+</section>
+
+<section>
+  <h2>Latest frames</h2>
+  <div class="wrap"><table><thead><tr><th>CAN ID</th><th>Data bytes</th><th>Verdict</th></tr></thead><tbody id="log"></tbody></table></div>
+</section>
+
+<p class="note">With the backend running, this page shows real Random Forest predictions on replayed CAN data. Without it, the page falls back to a simulated bus and a simple rule-based detector. The incident notes are templates; an LLM call can replace them.</p>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const rnd=n=>Math.floor(Math.random()*n);
+const hex=(n,w)=>n.toString(16).toUpperCase().padStart(w,'0');
+/* Normal-bus profile: frames per 100 ms (k) and the legal range of one signal byte (b) */
+const P={0x316:{k:2,b:2,lo:16,hi:96},0x153:{k:2,b:1,lo:0,hi:80},0x43F:{k:1,b:1,lo:0,hi:6},0x2C0:{k:1,b:0,lo:0,hi:40},0x130:{k:1,b:3,lo:0,hi:255},0x18F:{k:1,b:0,lo:0,hi:255}};
+const WHY={
+ DoS:'Frames with the top-priority ID 0x000 are flooding the bus. Real ECUs can’t get a message through. Isolate the offending node at the gateway.',
+ Fuzzy:'Frames with unknown IDs and random payloads are probing the bus. An attacker is searching for ECUs that react. Block unknown IDs at the gateway.',
+ Spoof:'Engine speed frames (0x316) carry impossible values. A rogue node is impersonating the engine ECU. Ignore these frames and alert the driver.'};
+const TYPES=['DoS','Fuzzy','Spoof'];
+let S,paused=false;
+function reset(){S={k:0,n:0,fl:0,tp:0,fp:0,fn:0,lat:0,latN:0,ttd:null,att:{},start:{},act:{},hist:[],bars:[],log:[],inc:[],failUntil:0}}
+reset();
+
+function gen(now){
+  const o=[],d8=()=>Array.from({length:8},()=>rnd(256));
+  for(const id in P){const p=P[id];for(let i=0;i<p.k;i++){const d=d8();d[p.b]=p.lo+rnd(p.hi-p.lo+1);o.push({id:+id,atk:null,d})}}
+  if(S.att.DoS>now)for(let i=0;i<25;i++)o.push({id:0,atk:'DoS',d:[0,0,0,0,0,0,0,0]});
+  if(S.att.Fuzzy>now)for(let i=0;i<10;i++)o.push({id:rnd(0x800),atk:'Fuzzy',d:d8()});
+  if(S.att.Spoof>now)for(let i=0;i<4;i++){const d=d8();d[2]=rnd(10)<7?0xE0+rnd(16):16+rnd(80);o.push({id:0x316,atk:'Spoof',d})}
+  return o.sort(()=>Math.random()-.5);
+}
+function classify(f){
+  const p=P[f.id];
+  if(!p)return f.id<0x20?'DoS':'Fuzzy';
+  const v=f.d[p.b];
+  return(v<p.lo||v>p.hi)?'Spoof':null;
+}
+function localTick(now){
+  const fr=gen(now),t0=performance.now(),T={n:fr.length,fl:0,tp:0,fp:0,fn:0,seen:{}};
+  for(const f of fr){f.v=classify(f);if(f.v){T.fl++;(T.seen[f.v]=T.seen[f.v]||new Set()).add(f.id);f.atk?T.tp++:T.fp++}else if(f.atk)T.fn++}
+  T.lat=performance.now()-t0;T.sample=fr.slice(-8);return T;
+}
+function tick(T){
+  if(paused||!T)return;
+  const now=performance.now(),t1=now,fl=T.fl,seen=T.seen;S.k++;
+  S.tp+=T.tp;S.fp+=T.fp;S.fn+=T.fn;S.lat+=T.lat;S.latN+=T.n;S.n+=T.n;S.fl+=fl;
+  for(const t in seen){
+    if(!S.act[t]){
+      const ttd=S.start[t]?t1-S.start[t]:null;if(ttd!==null){S.ttd=ttd;delete S.start[t]}
+      const inc={t,at:new Date().toLocaleTimeString(),ttd,ids:new Set(),sev:0};S.inc.unshift(inc);S.inc=S.inc.slice(0,5);S.act[t]={inc};
+    }
+    const a=S.act[t];a.last=S.k;seen[t].forEach(i=>a.inc.ids.size<4&&a.inc.ids.add(i));
+  }
+  for(const t in S.act)if(S.k-S.act[t].last>15)delete S.act[t];
+  S.hist.push(fl);if(S.hist.length>10)S.hist.shift();
+  if(S.hist.reduce((a,b)=>a+b,0)>=10)S.failUntil=now+3000;
+  S.bars.push([T.n-fl,fl]);if(S.bars.length>60)S.bars.shift();
+  S.log=T.sample;
+  render(now);
+}
+function render(now){
+  const rec=S.hist.reduce((a,b)=>a+b,0),st=now<S.failUntil?'fail':rec>0?'warn':'ok';
+  const car=$('#car');car.className='car '+st;
+  $('#state').textContent={ok:'Normal',warn:'Suspicious',fail:'Fail-safe mode'}[st];
+  $('#stateSub').textContent={ok:'All ECUs are behaving as expected.',warn:'Anomalous frames detected. Watching the bus closely.',fail:'Speed limited, infotainment isolated, driver alerted.'}[st];
+  $('#spd').textContent=st==='fail'?40:62;$('#rpm').textContent=st==='fail'?1500:2400;
+  $('#sN').textContent=S.n.toLocaleString();$('#sF').textContent=S.fl.toLocaleString();
+  $('#sT').textContent=S.ttd===null?'–':Math.round(S.ttd)+' ms';
+  $('#sP').textContent=S.tp+S.fp?(100*S.tp/(S.tp+S.fp)).toFixed(1)+'%':'–';
+  $('#sR').textContent=S.tp+S.fn?(100*S.tp/(S.tp+S.fn)).toFixed(1)+'%':'–';
+  const l=S.latN?S.lat/S.latN:0;$('#sL').textContent=S.latN?(l<0.01?'<0.01 ms':l.toFixed(3)+' ms'):'–';
+  TYPES.forEach(t=>document.querySelector('[data-a='+t+']').classList.toggle('on',S.att[t]>now));
+  $('#log').innerHTML=S.log.map(f=>`<tr class="${f.v?'bad':''}"><td>0x${hex(f.id,3)}</td><td>${f.d.map(b=>hex(b,2)).join(' ')}</td><td>${f.v||'normal'}</td></tr>`).join('');
+  if(S.inc.length)$('#inc').innerHTML=S.inc.map(i=>`<div class="inc"><h3>${i.t} attack <small>${i.at}${i.ttd!==null?' · caught in '+Math.round(i.ttd)+' ms':''}</small></h3><small>IDs: ${[...i.ids].map(x=>'0x'+hex(x,3)).join(', ')}</small><p>${WHY[i.t]}</p></div>`).join('');
+  else $('#inc').innerHTML='<p class="empty">No incidents yet. Inject an attack to see the detector respond.</p>';
+  draw();
+}
+function draw(){
+  const c=$('#ch'),w=c.clientWidth,h=120,r=window.devicePixelRatio||1;
+  c.width=w*r;c.height=h*r;const x=c.getContext('2d');x.scale(r,r);
+  const cs=getComputedStyle(document.documentElement),ok=cs.getPropertyValue('--ok'),bad=cs.getPropertyValue('--bad');
+  const mx=Math.max(40,...S.bars.map(b=>b[0]+b[1])),bw=w/60;
+  S.bars.forEach((b,i)=>{const hn=b[0]/mx*(h-4),hf=b[1]/mx*(h-4),px=i*bw;
+    x.fillStyle=ok;x.fillRect(px+1,h-hn,bw-2,hn);x.fillStyle=bad;x.fillRect(px+1,h-hn-hf,bw-2,hf)});
+}
+document.querySelectorAll('[data-a]').forEach(b=>b.addEventListener('click',()=>{const t=b.dataset.a,n=performance.now();S.att[t]=n+4000;S.start[t]=n;delete S.act[t];if(live)fetch('http://'+API+'/inject?type='+t,{method:'POST'}).catch(()=>{});render(n)}));
+$('#pause').addEventListener('click',e=>{paused=!paused;e.target.textContent=paused?'Resume':'Pause'});
+$('#reset').addEventListener('click',()=>{reset();render(performance.now())});
+window.addEventListener('resize',draw);
+/* Live mode: connect to the FastAPI backend. Falls back to the built-in simulation if it is not running. */
+const API=new URLSearchParams(location.search).get('api')||(location.protocol==='http:'?location.host:'localhost:8000');
+let live=false;
+function connect(){
+  let ws;try{ws=new WebSocket('ws://'+API+'/ws')}catch(e){return}
+  ws.onopen=()=>{live=true;reset();$('#mode').textContent='live backend (Random Forest)'};
+  ws.onmessage=e=>{const m=JSON.parse(e.data),seen={};
+    for(const t in m.by)seen[t]=new Set(m.sample.filter(f=>f.v===t).map(f=>f.id));
+    tick({n:m.n,fl:m.fl,tp:m.tp,fp:m.fp,fn:m.fn,seen,lat:m.lat_ms*m.n,sample:m.sample})};
+  ws.onclose=()=>{live=false;$('#mode').textContent='simulated bus (backend not found)';setTimeout(connect,3000)};
+}
+setInterval(()=>{if(!live)tick(localTick(performance.now()))},100);
+connect();render(performance.now());
+</script>
+</body>
+</html>
